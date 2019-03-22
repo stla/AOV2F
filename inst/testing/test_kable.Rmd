@@ -1,0 +1,60 @@
+---
+title: "Untitled"
+author: "Stéphane Laurent"
+date: "29 juillet 2017"
+output: html_document
+---
+
+```{r}
+library(AOV2F)
+set.seed(666)
+dat <- SimDataAV2(I=3, J=4, Kmin=1, Kmax=3, p=c(0.1,0.2), 
+                 factor.names=c("factor1", "factor2"), resp.name="y")
+```
+
+```{r}
+options(knitr.table.format = "html") 
+```
+
+```{r}
+xmeans <- xtabs(~factor1+factor2, data=dat)
+knitr::kable(format_ftable(ftable(xmeans)))
+```
+
+```{r}
+library(knitr)
+library(kableExtra)
+kable(format_ftable(ftable(xmeans))) %>% 
+  kable_styling(bootstrap_options = c("hover", "condensed", "responsive"))
+```
+
+```{r, results='asis', message=FALSE}
+library(stargazer)
+fit <- lm(y ~ factor1, data=dat)
+stargazer(anova(fit), type="html", title="ANOVA results")
+```
+
+```{r}
+kable(anova(fit))
+```
+
+```{r, results='asis', message=FALSE}
+library(texreg)
+htmlreg(fit)
+```
+
+
+```{r, results='asis'}
+stargazer(fit, type = "html")
+```
+
+
+```{r, results='asis', message=FALSE}
+library(ztable)
+ztable(fit, type="html")
+```
+
+```{r, results='asis'}
+ztable(anova(fit), type="html")
+```
+

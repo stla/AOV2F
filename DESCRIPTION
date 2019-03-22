@@ -1,0 +1,23 @@
+Package: AOV2F
+Type: Package
+Title: A knitr template for two-way ANOVA analysis
+Version: 0.1.0
+Date: 2018-12-28
+Author: Stéphane Laurent
+Maintainer: The package maintainer <yourself@somewhere.net>
+Description: Generates a report of a two-way ANOVA analysis.
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+Imports: knitr
+Suggests: kableExtra,
+  ztable,
+  ggplot2,
+  gridExtra,
+  emmeans,
+  multcomp,
+  stringr,
+  plyr,
+  car,
+  htmltools
+RoxygenNote: 6.1.1

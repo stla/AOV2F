@@ -1,0 +1,395 @@
+---
+title: "Two-way ANOVA with R"
+author: "Stéphane Laurent"
+date: "2017-10-19"
+output: 
+  html_document: 
+    toc: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE)
+```
+
+# Data 
+
+The data are simulated for this example.
+
+```{r}
+library(AOV2F)
+set.seed(666)
+dat <- SimDataAV2(I=3, J=4, Kmin=1, Kmax=3, p=c(0.1,0.2), 
+                 factor.names=c("factor1", "factor2"), resp.name="y")
+head(dat)
+```
+
+# Inputs 
+
+```{r}
+factors = c("factor1", "factor2") 
+resp = "y"
+factor.names = c("FACTOR1", "FACTOR2")
+resp.name = "RESPONSE"
+factor1.ref = "A3"
+factor2.ref = "B1"
+```
+
+# Analysis
+
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+library(knitr)
+library(kableExtra)
+library(ztable)
+library(ggplot2)
+library(gridExtra)
+library(lsmeans)
+library(multcomp)
+library(stringr)
+library(plyr)
+library(car)
+options(knitr.table.format = "html") 
+```
+
+
+- Rename the column names and set the reference levels:
+
+```{r echo=TRUE}
+dat <- dat[, c(factors, resp)]
+names(dat) <- c("factor1", "factor2", "resp")
+factor1.name <- factor.names[1]
+factor2.name <- factor.names[2]
+dat$factor1 <- relevel(dat$factor1, ref=factor1.ref)
+dat$factor2 <- relevel(dat$factor2, ref=factor2.ref)
+```
+
+## Data summaries 
+
+- Check whether there are missing values:
+
+```{r echo=TRUE, results='asis', comment=NA}
+NAs <- length(which(is.na(dat$resp)))
+dat <- droplevels(subset(dat, !is.na(resp)))
+if(NAs > 0){
+  if(NAs==1){
+    cat("There was one missing value in the response column.")
+  }else{
+    cat(sprintf("There were %s missing values in the response column.", NAs))
+  }
+}else{
+  cat("There is no missing value in the response column.")
+}
+```
+
+- Plot all data:
+
+```{r echo=TRUE, fig.height=nlevels(dat$factor1), fig.width=2*nlevels(dat$factor2)}
+ggplot(data=dat, aes(x=resp, y=factor1)) +
+  geom_point() + 
+  geom_jitter(width=0, height=.2) + 
+  ylab(factor1.name) + xlab(resp.name) +
+  facet_grid(.~factor2) +
+  ggtitle("Plot of data by each combination of the two factors")
+```
+
+- Table of means:
+
+```{r echo=TRUE, results='asis'}
+xfrequencies <- xtabs(~factor1+factor2, data=dat)
+xmeans <- xtabs(resp~factor1+factor2, data=dat) /  xfrequencies
+names(dimnames(xmeans)) <- factor.names
+kable(format_ftable(ftable(xmeans)), 
+             caption="Means by each combination of the two factors") %>% 
+  kable_styling(bootstrap_options = c("hover", "condensed", "responsive"), 
+                full_width = FALSE)
+```
+
+- Table of counts: 
+
+```{r echo=TRUE}
+names(dimnames(xfrequencies)) <- factor.names
+kable(format_ftable(ftable(xfrequencies)), 
+      caption="Frequencies by each combination of the two factors") %>% 
+  kable_styling(bootstrap_options = c("hover", "condensed", "responsive"), 
+                full_width = FALSE)
+```
+
+The two tables above are generated with the help of this function `format_ftable`:
+
+```{r echo=TRUE, eval=FALSE}
+format_ftable <- function (x, digits = getOption("digits"))
+{
+  if (!inherits(x, "ftable"))
+    stop("x must be an `ftable'")
+  ox <- x
+  makeLabels <- function(lst) {
+    lens <- sapply(lst, length)
+    cplensU <- c(1, cumprod(lens))
+    cplensD <- rev(c(1, cumprod(rev(lens))))
+    y <- NULL
+    for (i in rev(seq(along = lst))) {
+      ind <- 1 + seq(from = 0, to = lens[i] - 1) * cplensD[i+1]
+      tmp <- character(length = cplensD[i])
+      tmp[ind] <- lst[[i]]
+      y <- cbind(rep(tmp, times = cplensU[i]), y)
+    }
+    y
+  }
+  makeNames <- function(x) {
+    nmx <- names(x)
+    if (is.null(nmx))
+      nmx <- rep("", length = length(x))
+    nmx
+  }
+  xrv <- attr(x, "row.vars")
+  xcv <- attr(x, "col.vars")
+  LABS <- cbind(rbind(matrix("", nrow = length(xcv), ncol = length(xrv)),
+                      makeNames(xrv), 
+                      makeLabels(xrv)), 
+                c(makeNames(xcv), rep("", times = nrow(x) + 1)))
+  DATA <- rbind(t(makeLabels(xcv)), rep("", times = ncol(x)),
+                format(unclass(x), digits = digits))
+  cbind(apply(LABS, 2, format, justify = "left"), 
+        apply(DATA, 2, format, justify = "right"))
+}
+```
+
+
+- Plot of means for each combination of the two factors: 
+
+```{r echo=TRUE, fig.height=1.33*nlevels(dat$factor1)}
+means <- aggregate(resp~factor1+factor2, data=dat, FUN=mean)
+ggplot(data=means, aes(y=resp, x=factor1, colour=factor2, group=factor2)) +
+  geom_line(size=.6) + geom_point(size=3) +
+  labs(colour=factor2.name) + 
+  xlab(factor1.name) + ylab(resp.name) + coord_flip() +
+  ggtitle("Means by each combination of the two factors")
+```
+
+- Plot of overall means:
+
+```{r echo=TRUE, fig.width=12, fig.height=1.5*max(nlevels(dat$factor1),nlevels(dat$factor2))}
+gg1 <- ggplot(aggregate(resp~factor1, data=dat, FUN=mean), 
+              aes(y=resp, x=factor1, group=NA)) +
+  geom_line(size=.6, colour="black") +
+  geom_point(size=3, colour="forestgreen") +
+  xlab(factor1.name) + ylab(resp.name) + coord_flip() +
+  ggtitle(paste0("Overall means by factor ", factor1.name))
+gg2 <- ggplot(aggregate(resp~factor2, data=dat, FUN=mean), 
+              aes(y=resp, x=factor2, group=NA)) +
+  geom_line(size=.6, colour="black") +
+  geom_point(size=3, colour="forestgreen") +
+  xlab(factor2.name) + ylab(resp.name) + coord_flip() +
+  ggtitle(paste0("Overall means by factor ", factor2.name))
+grid.arrange(gg1, gg2, ncol=2)
+```
+
+
+## Two-way ANOVA
+
+- Fit the model:
+
+```{r echo=TRUE, results='asis'}
+lmfit <- lm(resp ~ factor1*factor2, data=dat)
+interact <- anova(lmfit)$`Pr(>F)`[3] < 5/100
+aovTable <- Anova(lmfit)
+ztable(aovTable, type="html")
+```
+
+- Individual confidence intervals of the means:
+
+```{r echo=TRUE, fig.height=1.33*nlevels(dat$factor1), fig.width=2*nlevels(dat$factor2)}
+intervals <- confint(emmeans(lmfit, ~factor1+factor2), level=95/100)
+ggplot(data=intervals, aes(x=factor1, y=emmean)) +
+  geom_point(size=3) +
+  geom_errorbar(aes(ymin=lower.CL, ymax=upper.CL), width=.1) +
+  xlab(factor1.name) + ylab(resp.name) +
+  facet_grid(.~factor2) + coord_flip() +
+  ggtitle("Individual confidence intervals of the means")
+```
+
+
+```{r echo=TRUE, results='asis'}
+tab <- as.data.frame(intervals)
+kable(tab, caption="Individual confidence intervals of the means") %>% 
+    kable_styling(bootstrap_options = c("hover", "condensed", "responsive"), 
+                full_width = FALSE)
+```
+
+- Simultaneous confidence intervals of the means:
+
+```{r echo=TRUE, fig.height=1.33*nlevels(dat$factor1), fig.width=2*nlevels(dat$factor2), error=TRUE}
+emm <- emmeans(lmfit, ~factor1+factor2)
+K <- emm@linfct
+tests <- glht(lmfit, linfct=K)
+Intervals <- intervals <- 
+  cbind(emm@grid, data.frame(confint(tests, level=0.95)$confint))
+# if(factor1.ref %in% levels(ggd$factor1)){ # ???
+#   ggd$factor1 <- relevel(ggd$factor1, ref=factor1.ref)
+# }
+ggplot(data=intervals, aes(x=factor1, y=Estimate)) +
+  geom_point(size=3) +
+  geom_errorbar(aes(ymin=lwr, ymax=upr), width=.1) +
+  xlab(factor1.name) + ylab(resp.name) +
+  facet_grid(.~factor2) + coord_flip() +
+  ggtitle("Simultaneous confidence intervals of the means")
+```
+
+```{r echo=TRUE, results='asis'}
+kable(intervals, caption="Simultaneous confidence intervals of the means") %>%
+  kable_styling(bootstrap_options = c("hover", "condensed", "responsive"), 
+                full_width = FALSE)
+```
+
+
+### Comparisons to the reference level of factor1 by level of factor 2
+
+```{r echo=TRUE, fig.height=nlevels(dat$factor1), fig.width=2*nlevels(dat$factor2)}
+if(factor1.ref %in% levels(Intervals$factor1)){
+  C <- emmeans(lmfit, pairwise ~ factor1 | factor2, weights="cells")$contrasts
+  M <- C@linfct
+  indices <- !is.na(str_locate(C@grid$contrast, paste0(factor1.ref, " -"))[,"start"]==1)
+  comparisons <- rename(droplevels(C@grid[indices,]), c(contrast="Comparison", factor2=factor2.name))
+  M <- M[indices,]
+  ci <- confint(glht(lmfit, linfct = M))
+  intervals <- cbind(comparisons, data.frame(ci$confint))
+  intervals$Comparison <- str_replace(intervals$Comparison, "-", "vs")
+  intervals$signif <- intervals$lwr>0 | intervals$upr<0
+  colors <- if(all(intervals$signif)) "red" else if(all(!intervals$signif)) "black" else c("black", "red")
+  ggplot(intervals, aes(y=Estimate, x=Comparison, color=signif)) + geom_point(size=3) +
+    geom_errorbar(aes(ymin=lwr, ymax=upr), width=.1) +
+    facet_grid(as.formula(sprintf(".~%s", factor2.name))) + coord_flip() +
+    geom_hline(yintercept=0, linetype="dashed")  +
+    scale_colour_manual(values=colors) + guides(color=FALSE) +
+    ylab("Mean difference")
+}else{
+  cat("These comparisons are not available because the reference level of factor1 is not here.")
+}
+```
+
+```{r echo=TRUE, results='asis'}
+if(factor1.ref %in% levels(Intervals$factor1)){
+  tab <- intervals[,c("Comparison", factor2.name, "Estimate", "lwr", "upr")]
+  kable(tab, 
+        caption="Comparisons to the reference level of factor1 for each level of factor2") %>% 
+      kable_styling(bootstrap_options = c("hover", "condensed", "responsive"), 
+                full_width = FALSE)
+}
+```
+
+
+### Comparisons to the reference level of factor 1 over all levels of factor 2 
+
+```{r echo=TRUE, results='asis'}
+if(interact && factor1.ref %in% levels(Intervals$factor1)) cat("NOTE: Results may be misleading due to the significant interaction !")
+```
+
+```{r echo=TRUE, message=FALSE, fig.height=nlevels(dat$factor1)}
+if(factor1.ref %in% levels(Intervals$factor1)){
+  ci <- emmeans(lmfit, pairwise ~ factor1, weights="cells")$contrasts
+  M <- ci@linfct
+  rownames(M) <- ci@grid$contrast
+  if(nlevels(dat$factor1)>2)  M <- M[which(!is.na(str_locate(rownames(M), paste0(factor1.ref, " -"))[,"start"]==1)), ]
+  intervals <- data.frame(confint(glht(lmfit, linfct = M))$confint)
+  tab <- intervals <- cbind(Comparison=str_replace(rownames(intervals), "-", "vs"), intervals)
+  intervals$signif <- intervals$lwr>0 | intervals$upr<0
+  colors <- if(all(intervals$signif)) "red" else if(all(!intervals$signif)) "black" else c("black", "red")
+  ggplot(intervals, aes(y=Estimate, x=Comparison, color=signif)) + 
+    geom_point(size=3) +
+    geom_errorbar(aes(ymin=lwr, ymax=upr), width=.1) +
+    coord_flip() +
+    geom_hline(yintercept=0, linetype="dashed")  +
+    scale_colour_manual(values=colors) + guides(color=FALSE) +
+    ylab("Mean difference")
+}else{
+  cat("These comparisons are not available because the reference level of factor1 is not here.")
+}
+```
+
+```{r echo=TRUE, results='asis'}
+if(factor1.ref %in% levels(Intervals$factor1)){
+    kable(tab, caption="Comparisons to the reference level of factor1 over all levels of factor2", digits=2) %>%
+    kable_styling(bootstrap_options = c("hover", "condensed", "responsive"), 
+                  full_width = FALSE)
+}
+```
+
+
+### Comparisons to the reference level of factor2 by level of factor 1
+
+```{r echo=TRUE, fig.height=nlevels(dat$factor2), fig.width=2*nlevels(dat$factor1)}
+if(factor2.ref %in% levels(Intervals$factor2)){
+  C <- emmeans(lmfit, pairwise ~ factor2 | factor1, weights="cells")$contrasts
+  M <- C@linfct
+  indices <- !is.na(str_locate(C@grid$contrast, 
+                               paste0(factor2.ref, " -"))[,"start"]==1)
+  comparisons <- rename(droplevels(C@grid[indices,]), 
+                        c(contrast="Comparison", factor1=factor1.name))
+  M <- M[indices,]
+  ci <- confint(glht(lmfit, linfct = M))
+  intervals <- cbind(comparisons, data.frame(ci$confint))
+  intervals$Comparison <- str_replace(intervals$Comparison, "-", "vs")
+  intervals$signif <- intervals$lwr>0 | intervals$upr<0
+  colors <- if(all(intervals$signif)) "red" else if(all(!intervals$signif)) "black" else c("black", "red")
+  ggplot(intervals, aes(y=Estimate, x=Comparison, color=signif)) + 
+    geom_point(size=3) +
+    geom_errorbar(aes(ymin=lwr, ymax=upr), width=.1) +
+    facet_grid(as.formula(sprintf(".~%s", factor1.name))) + coord_flip() +
+    geom_hline(yintercept=0, linetype="dashed")  +
+    scale_colour_manual(values=colors) + guides(color=FALSE) +
+    ylab("Mean difference")
+}else{
+  cat("These comparisons are not available because the reference level of factor2 is not here.")
+}
+```
+
+```{r echo=TRUE, results='asis'}
+if(factor2.ref %in% levels(Intervals$factor2)){
+  tab <- intervals[,c("Comparison", factor1.name, "Estimate", "lwr", "upr")]
+  kable(tab, caption="Comparisons to the reference level of factor2 for each level of factor1") %>%
+          kable_styling(bootstrap_options = c("hover", "condensed", "responsive"), 
+                full_width = FALSE)
+}
+```
+
+
+
+### Comparisons to the reference level of factor 2 over all levels of factor 1 
+
+```{r echo=TRUE, results='asis'}
+if(interact && factor2.ref %in% levels(Intervals$factor2)) cat("NOTE: Results may be misleading due to the significant interaction !")
+```
+
+
+```{r echo=TRUE, message=FALSE, fig.height=nlevels(dat$factor2)}
+if(factor2.ref %in% levels(Intervals$factor2)){
+  ci <- emmeans(lmfit, pairwise ~ factor2, weights="cells")$contrasts
+  M <- ci@linfct
+  rownames(M) <- ci@grid$contrast
+  if(nlevels(dat$factor2)>2)  M <- 
+    M[which(!is.na(str_locate(rownames(M), 
+                              paste0(factor2.ref, " -"))[,"start"]==1)), ]
+  intervals <- data.frame(confint(glht(lmfit, linfct = M))$confint)
+  tab <- intervals <- cbind(Comparison=str_replace(rownames(intervals), "-", "vs"), intervals)
+  intervals$signif <- intervals$lwr>0 | intervals$upr<0
+  colors <- if(all(intervals$signif)) "red" else if(all(!intervals$signif)) "black" else c("black", "red")
+  ggplot(intervals, aes(y=Estimate, x=Comparison, color=signif)) + geom_point(size=3) +
+    geom_errorbar(aes(ymin=lwr, ymax=upr), width=.1) +
+    coord_flip() +
+    geom_hline(yintercept=0, linetype="dashed")  +
+    scale_colour_manual(values=colors) + guides(color=FALSE) +
+    ylab("Mean difference")
+}else{
+  cat("These comparisons are not available because the reference level of factor2 is not here.")
+}
+```
+
+```{r echo=TRUE, results='asis'}
+if(factor2.ref %in% levels(Intervals$factor2)){
+  kable(tab, caption="Comparisons to the reference level of factor2 over all levels of factor1") %>%
+    kable_styling(bootstrap_options = c("hover", "condensed", "responsive"), 
+                  full_width = FALSE)
+}
+```
+

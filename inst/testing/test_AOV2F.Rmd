@@ -1,0 +1,54 @@
+---
+title: "A two-way ANOVA analysis with R"
+author: "Stéphane Laurent"
+date: "2018-12-28"
+output: 
+  html_document: 
+    number_sections: yes
+    toc: yes
+    css: styles.css
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup0, include=FALSE}
+library(AOV2F)
+knitr::opts_chunk$set(collapse = TRUE, echo = FALSE)
+```
+
+# Data 
+
+The data are simulated for this example.
+
+```{r echo=TRUE}
+set.seed(666)
+dat <- SimDataAV2(I=3, J=4, Kmin=1, Kmax=3, p=c(0.1,0.2), 
+                 factor.names=c("factor1", "factor2"), resp.name="y")
+head(dat)
+```
+
+# Inputs 
+
+```{r echo=TRUE}
+factors <- c("factor1", "factor2") 
+resp <- "y"
+factor.names <- c("FACTOR1", "FACTOR2")
+resp.name <- "RESPONSE"
+factor1.ref <- "A3"
+factor2.ref <- "B1"
+```
+
+Now, run 
+
+```r
+childANOVA2F(dat, factors = factors, resp = resp, factor.names = factor.names, 
+  resp.name = resp.name, factor1.ref = factor1.ref, factor2.ref = factor2.ref)
+```
+
+and you get the output below.
+
+___
+
+# Output
+
+`r childANOVA2F(dat, factors=c("factor1", "factor2"), resp="y", factor.names=c("FACTOR1", "FACTOR2"), resp.name="RESPONSE", factor1.ref="A3", title="My study")`
